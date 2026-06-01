@@ -24,18 +24,21 @@ jobs:
       - name: Install wizard dependencies
         run: npm install
 
-      - name: Rebuild openclaw-pack for macOS
+      - name: Clean openclaw-pack for macOS
         run: |
           set -x
           ASSETS_DIR="${{ github.workspace }}/assets"
           cd "$ASSETS_DIR"
 
-          echo "=== Zip file size ==="
+          echo "=== Original zip size ==="
           ls -lh openclaw-pack.zip
 
           echo "=== Extracting ==="
           rm -rf openclaw-pack-temp
           unzip -o openclaw-pack.zip -d openclaw-pack-temp
+
+          echo "=== Top-level contents ==="
+          ls -la openclaw-pack-temp/
 
           cd openclaw-pack-temp
           TOP_DIR=$(ls -d */ 2>/dev/null | head -1)
@@ -44,43 +47,45 @@ jobs:
             cd "$TOP_DIR"
           fi
 
-          echo "=== Removing old node_modules and lock file ==="
-          rm -rf node_modules
-          rm -f package-lock.json
+          WORK_DIR="$(pwd)"
+          echo "=== Working directory: $WORK_DIR ==="
+          ls -la
 
-          if [ -f package.json ]; then
-            echo "=== package.json contents ==="
+          if [ -f "package.json" ]; then
+            echo "=== package.json ==="
             cat package.json
+          fi
+
+          echo ""
+          echo "=== Checking node_modules ==="
+          if [ -d "node_modules" ]; then
+            NM_COUNT=$(find node_modules -maxdepth 1 -type d | wc -l | tr -d ' ')
+            echo "  node_modules already exists with $NM_COUNT top-level directories"
 
             echo ""
-            echo "=== npm install (with fallback) ==="
-            NODE_OPTIONS="--max-old-space-size=8192" npm install --force --production 2>&1 && {
-              echo ">>> npm install SUCCEEDED"
-            } || {
-              echo ">>> Attempt 1 FAILED, trying with --ignore-scripts"
-              rm -rf node_modules
-              NODE_OPTIONS="--max-old-space-size=8192" npm install --force --production --ignore-scripts 2>&1 && {
-                echo ">>> Attempt 2 SUCCEEDED"
-              } || {
-                echo ">>> All attempts FAILED, continuing anyway"
-              }
-            }
+            echo "=== Removing Windows-only files from node_modules ==="
+            find node_modules -name "*.exe" -type f -delete 2>/dev/null
+            find node_modules -name "*.cmd" -type f -delete 2>/dev/null
+            find node_modules -name "*.dll" -type f -delete 2>/dev/null
+            find node_modules -name "*.pdb" -type f -delete 2>/dev/null
+            find node_modules -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "  Windows binaries removed"
 
             echo ""
-            echo "=== Post-install verification ==="
-            if [ -d "node_modules" ]; then
-              NM_COUNT=$(find node_modules -maxdepth 1 -type d | wc -l | tr -d ' ')
-              echo "  node_modules packages: $NM_COUNT"
-              echo "  node_modules/.bin contents:"
-              ls -la node_modules/.bin/ 2>/dev/null | head -20
-            else
-              echo "  WARNING: node_modules still missing after all attempts!"
-            fi
+            echo "=== node_modules/.bin contents ==="
+            ls -la node_modules/.bin/ 2>/dev/null | head -20
+
+            NM_COUNT_AFTER=$(find node_modules -maxdepth 1 -type d | wc -l | tr -d ' ')
+            echo "  After cleanup: $NM_COUNT_AFTER top-level directories"
           else
-            echo "WARNING: No package.json found"
+            echo "  WARNING: node_modules not found in zip!"
+            echo "  Directory listing:"
             find . -maxdepth 2 -type f | head -30
           fi
 
+          rm -f package-lock.json
+
+          echo ""
           echo "=== Repackaging ==="
           cd "$ASSETS_DIR"
           rm -f openclaw-pack.zip
