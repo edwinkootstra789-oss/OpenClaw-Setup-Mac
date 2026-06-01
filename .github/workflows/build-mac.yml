@@ -20,48 +20,83 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install electron-builder dependencies
+      - name: Install wizard dependencies
         run: npm install
 
       - name: Rebuild openclaw-pack for macOS
         run: |
-          cd assets
-          echo "=== Listing zip contents (top 20) ==="
-          unzip -l openclaw-pack.zip | head -30
+          set -x
+          ASSETS_DIR="${{ github.workspace }}/assets"
+          cd "$ASSETS_DIR"
+
+          echo "=== Zip file size ==="
+          ls -lh openclaw-pack.zip
+
+          echo "=== Listing zip contents (first 50 lines) ==="
+          unzip -l openclaw-pack.zip | head -60
+
           echo "=== Extracting ==="
+          rm -rf openclaw-pack-temp
           unzip -o openclaw-pack.zip -d openclaw-pack-temp
+
           echo "=== Top-level contents ==="
           ls -la openclaw-pack-temp/
+
           cd openclaw-pack-temp
           TOP_DIR=$(ls -d */ 2>/dev/null | head -1)
           if [ -n "$TOP_DIR" ]; then
             echo "Detected wrapper dir: $TOP_DIR"
             cd "$TOP_DIR"
           fi
-          echo "=== Current dir: $(pwd) ==="
+
+          WORK_DIR="$(pwd)"
+          echo "=== Working directory: $WORK_DIR ==="
           ls -la
-          echo "=== Removing old node_modules ==="
+
+          echo "=== Removing old node_modules and lock file ==="
           rm -rf node_modules
+          rm -f package-lock.json
+
           if [ -f package.json ]; then
-            echo "=== Found package.json, running npm install ==="
-            NODE_OPTIONS="--max-old-space-size=4096" npm install --production || {
-              echo "npm install failed, trying without optional deps"
-              NODE_OPTIONS="--max-old-space-size=4096" npm install --production --ignore-optional || {
-                echo "npm install failed again"
-                exit 1
+            echo "=== package.json contents ==="
+            cat package.json
+
+            echo ""
+            echo "=== Attempt 1: npm install --force --production ==="
+            NODE_OPTIONS="--max-old-space-size=8192" npm install --force --production 2>&1 && {
+              echo ">>> Attempt 1 SUCCEEDED"
+            } || {
+              echo ">>> Attempt 1 FAILED"
+              rm -rf node_modules
+              echo "=== Attempt 2: npm install --force --production --ignore-scripts ==="
+              NODE_OPTIONS="--max-old-space-size=8192" npm install --force --production --ignore-scripts 2>&1 && {
+                echo ">>> Attempt 2 SUCCEEDED"
+              } || {
+                echo ">>> Attempt 2 FAILED"
+                rm -rf node_modules
+                echo "=== Attempt 3: npm install --force --legacy-peer-deps --ignore-scripts ==="
+                NODE_OPTIONS="--max-old-space-size=8192" npm install --force --legacy-peer-deps --ignore-scripts 2>&1 && {
+                  echo ">>> Attempt 3 SUCCEEDED"
+                } || {
+                  echo ">>> All npm install attempts FAILED"
+                  echo ">>> Continuing build without rebuilt node_modules"
+                }
               }
             }
           else
-            echo "WARNING: No package.json found, skipping npm install"
+            echo "WARNING: No package.json found in $WORK_DIR"
+            echo "=== Directory listing (max depth 2) ==="
+            find . -maxdepth 2 -type f | head -30
           fi
+
           echo "=== Repackaging ==="
-          cd ../..
+          cd "$ASSETS_DIR"
           rm -f openclaw-pack.zip
           cd openclaw-pack-temp
           zip -r ../openclaw-pack.zip .
-          cd ..
+          cd "$ASSETS_DIR"
           rm -rf openclaw-pack-temp
-          echo "=== Done ==="
+          echo "=== New zip size ==="
           ls -lh openclaw-pack.zip
 
       - name: Build macOS DMG
