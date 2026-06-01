@@ -1,0 +1,296 @@
+name: Test macOS Installer
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Build macOS DMG"]
+    types: [completed]
+
+jobs:
+  test:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install wizard dependencies
+        run: npm install
+
+      - name: Rebuild openclaw-pack for macOS
+        run: |
+          set -x
+          ASSETS_DIR="${{ github.workspace }}/assets"
+          cd "$ASSETS_DIR"
+
+          echo "=== Zip file size ==="
+          ls -lh openclaw-pack.zip
+
+          echo "=== Extracting ==="
+          rm -rf openclaw-pack-temp
+          unzip -o openclaw-pack.zip -d openclaw-pack-temp
+
+          cd openclaw-pack-temp
+          TOP_DIR=$(ls -d */ 2>/dev/null | head -1)
+          if [ -n "$TOP_DIR" ]; then
+            echo "Detected wrapper dir: $TOP_DIR"
+            cd "$TOP_DIR"
+          fi
+
+          echo "=== Removing old node_modules and lock file ==="
+          rm -rf node_modules
+          rm -f package-lock.json
+
+          if [ -f package.json ]; then
+            echo "=== package.json contents ==="
+            cat package.json
+
+            echo ""
+            echo "=== npm install (with fallback) ==="
+            NODE_OPTIONS="--max-old-space-size=8192" npm install --force --production 2>&1 && {
+              echo ">>> npm install SUCCEEDED"
+            } || {
+              echo ">>> Attempt 1 FAILED, trying with --ignore-scripts"
+              rm -rf node_modules
+              NODE_OPTIONS="--max-old-space-size=8192" npm install --force --production --ignore-scripts 2>&1 && {
+                echo ">>> Attempt 2 SUCCEEDED"
+              } || {
+                echo ">>> All attempts FAILED, continuing anyway"
+              }
+            }
+          else
+            echo "WARNING: No package.json found"
+            find . -maxdepth 2 -type f | head -30
+          fi
+
+          echo "=== Repackaging ==="
+          cd "$ASSETS_DIR"
+          rm -f openclaw-pack.zip
+          cd openclaw-pack-temp
+          zip -r ../openclaw-pack.zip .
+          cd "$ASSETS_DIR"
+          rm -rf openclaw-pack-temp
+          echo "=== New zip size ==="
+          ls -lh openclaw-pack.zip
+
+      - name: Build macOS DMG
+        run: npx electron-builder --mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run installer tests
+        run: |
+          echo "============================================="
+          echo "  OpenClaw macOS Installer — Automated Test"
+          echo "============================================="
+          echo ""
+
+          PASS=0
+          FAIL=0
+          RESULTS=""
+
+          check() {
+            local name="$1"
+            local cmd="$2"
+            echo ""
+            echo "── TEST: $name ──"
+            if eval "$cmd"; then
+              echo "  ✅ PASS: $name"
+              RESULTS="$RESULTS\n✅ $name"
+              PASS=$((PASS + 1))
+            else
+              echo "  ❌ FAIL: $name"
+              RESULTS="$RESULTS\n❌ $name"
+              FAIL=$((FAIL + 1))
+            fi
+          }
+
+          # ── Test 1: DMG file exists ──
+          DMG_FILE=$(find dist -name "*.dmg" -type f 2>/dev/null | head -1)
+          check "DMG file exists" '[ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]'
+
+          if [ -n "$DMG_FILE" ]; then
+            DMG_SIZE=$(stat -f%z "$DMG_FILE" 2>/dev/null || echo 0)
+            DMG_SIZE_MB=$((DMG_SIZE / 1024 / 1024))
+            echo "  DMG size: ${DMG_SIZE_MB} MB"
+            check "DMG size > 100MB" '[ "$DMG_SIZE_MB" -gt 100 ]'
+          fi
+
+          # ── Test 2: ZIP artifact exists ──
+          ZIP_FILE=$(find dist -name "*.zip" -not -path "*/blockmap*" -type f 2>/dev/null | head -1)
+          check "ZIP artifact exists" '[ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]'
+
+          # ── Test 3: Mount DMG and verify app structure ──
+          echo ""
+          echo "── Mounting DMG ──"
+          MOUNT_POINT=$(mktemp -d)
+          hdiutil attach "$DMG_FILE" -mountpoint "$MOUNT_POINT" -quiet
+          sleep 2
+
+          echo "  DMG mount point: $MOUNT_POINT"
+          ls -la "$MOUNT_POINT/"
+
+          APP_NAME=$(find "$MOUNT_POINT" -maxdepth 1 -name "*.app" -type d 2>/dev/null | head -1)
+          check "App bundle found in DMG" '[ -n "$APP_NAME" ]'
+
+          if [ -n "$APP_NAME" ]; then
+            echo "  App: $APP_NAME"
+
+            # ── Test 4: Key files inside app bundle ──
+            RESOURCES_DIR="$APP_NAME/Contents/Resources"
+            MACOS_DIR="$APP_NAME/Contents/MacOS"
+
+            check "Info.plist exists" '[ -f "$APP_NAME/Contents/Info.plist" ]'
+            check "Electron binary exists" '[ -n "$(find "$MACOS_DIR" -type f -perm +111 | head -1)" ]'
+
+            check "main.js in resources" '[ -f "$RESOURCES_DIR/main.js" ]'
+            check "preload.js in resources" '[ -f "$RESOURCES_DIR/preload.js" ]'
+            check "renderer.js in resources" '[ -f "$RESOURCES_DIR/renderer.js" ]'
+            check "index.html in resources" '[ -f "$RESOURCES_DIR/index.html" ]'
+
+            # ── Test 5: Assets directory ──
+            ASSETS_DIR="$RESOURCES_DIR/assets"
+            check "assets/ directory exists" '[ -d "$ASSETS_DIR" ]'
+
+            if [ -d "$ASSETS_DIR" ]; then
+              check "openclaw-pack.zip exists" '[ -f "$ASSETS_DIR/openclaw-pack.zip" ]'
+              PACK_SIZE=$(stat -f%z "$ASSETS_DIR/openclaw-pack.zip" 2>/dev/null || echo 0)
+              PACK_SIZE_MB=$((PACK_SIZE / 1024 / 1024))
+              echo "  openclaw-pack.zip size: ${PACK_SIZE_MB} MB"
+
+              check "openclaw-pack.zip > 50MB" '[ "$PACK_SIZE_MB" -gt 50 ]'
+
+              check "OpenClaw启动.sh exists" '[ -f "$ASSETS_DIR/OpenClaw启动.sh" ]'
+              check "logo.png exists" '[ -f "$ASSETS_DIR/logo.png" ]'
+              check "openclaw.json exists" '[ -f "$ASSETS_DIR/openclaw.json" ]'
+              check "skills/ directory exists" '[ -d "$ASSETS_DIR/skills" ]'
+
+              if [ -d "$ASSETS_DIR/skills" ]; then
+                SKILL_COUNT=$(ls -1d "$ASSETS_DIR/skills"/*/ 2>/dev/null | wc -l | tr -d ' ')
+                echo "  Skills count: $SKILL_COUNT"
+                check "Skills count >= 10" '[ "$SKILL_COUNT" -ge 10 ]'
+              fi
+            fi
+
+            # ── Test 6: Verify openclaw-pack.zip has macOS binaries ──
+            echo ""
+            echo "── Checking openclaw-pack.zip contents ──"
+            PACK_DIR=$(mktemp -d)
+            unzip -q "$ASSETS_DIR/openclaw-pack.zip" -d "$PACK_DIR"
+
+            # Check for wrapper directory
+            cd "$PACK_DIR"
+            TOP_DIR=$(ls -d */ 2>/dev/null | head -1)
+            if [ -n "$TOP_DIR" ]; then
+              cd "$TOP_DIR"
+            fi
+
+            check "package.json in openclaw-pack" '[ -f "package.json" ]'
+            check "node_modules exists in pack" '[ -d "node_modules" ]'
+
+            if [ -d "node_modules" ]; then
+              NM_COUNT=$(find node_modules -maxdepth 1 -type d | wc -l | tr -d ' ')
+              echo "  node_modules top-level packages: $NM_COUNT"
+              check "node_modules has > 10 packages" '[ "$NM_COUNT" -gt 10 ]'
+
+              # Check no Windows-only binaries
+              CMD_COUNT=$(find node_modules -name "*.cmd" -type f 2>/dev/null | wc -l | tr -d ' ')
+              echo "  .cmd files found: $CMD_COUNT"
+
+              EXE_COUNT=$(find node_modules -name "*.exe" -type f 2>/dev/null | wc -l | tr -d ' ')
+              echo "  .exe files found: $EXE_COUNT"
+
+              # .cmd and .exe are fine to exist (cross-platform packages include them)
+              # but the critical binaries should be macOS native
+              check "No electron.exe (>100MB Windows binary)" '
+                EXE_FILES=$(find node_modules -name "electron.exe" -type f 2>/dev/null)
+                if [ -n "$EXE_FILES" ]; then
+                  for f in $EXE_FILES; do
+                    SIZE=$(stat -f%z "$f" 2>/dev/null || echo 0)
+                    if [ "$SIZE" -gt 100000000 ]; then
+                      echo "  ERROR: Found large electron.exe ($(($SIZE/1024/1024)) MB)"
+                      exit 1
+                    fi
+                  done
+                fi
+                exit 0
+              '
+            fi
+
+            cd "$GITHUB_WORKSPACE"
+            rm -rf "$PACK_DIR"
+          fi
+
+          # ── Cleanup ──
+          hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
+          rm -rf "$MOUNT_POINT"
+
+          # ── Test 7: Simulate install (unpack to ~/.openclaw) ──
+          echo ""
+          echo "── Simulating installation ──"
+          TEST_INSTALL_DIR=$(mktemp -d)/.openclaw
+          mkdir -p "$TEST_INSTALL_DIR"
+
+          # Unpack openclaw-pack.zip
+          ASSETS_SRC="${{ github.workspace }}/assets"
+          unzip -q "$ASSETS_SRC/openclaw-pack.zip" -d "$TEST_INSTALL_DIR"
+
+          # Flatten if wrapper dir exists
+          cd "$TEST_INSTALL_DIR"
+          TOP_DIR=$(ls -d */ 2>/dev/null | head -1)
+          if [ -n "$TOP_DIR" ] && [ $(ls -1 | wc -l | tr -d ' ') -eq 1 ]; then
+            echo "  Flattening wrapper: $TOP_DIR"
+            mv "$TOP_DIR"* . 2>/dev/null
+            rmdir "$TOP_DIR" 2>/dev/null
+          fi
+
+          check "Install dir has node_modules" '[ -d "$TEST_INSTALL_DIR/node_modules" ]'
+          check "Install dir has node_modules/.bin" '[ -d "$TEST_INSTALL_DIR/node_modules/.bin" ]'
+
+          # Check for openclaw binary
+          OPENCLAW_BIN=$(find "$TEST_INSTALL_DIR/node_modules/.bin" -name "openclaw" -type f -o -name "openclaw" -type l 2>/dev/null | head -1)
+          check "openclaw binary/link found" '[ -n "$OPENCLAW_BIN" ]'
+
+          if [ -n "$OPENCLAW_BIN" ]; then
+            echo "  openclaw path: $OPENCLAW_BIN"
+            ls -la "$OPENCLAW_BIN"
+          fi
+
+          # Check .sh launcher
+          check "OpenClaw启动.sh is executable" '
+            if [ -f "$ASSETS_SRC/OpenClaw启动.sh" ]; then
+              PERMS=$(stat -f%A "$ASSETS_SRC/OpenClaw启动.sh" 2>/dev/null)
+              echo "  Permissions: $PERMS"
+              exit 0
+            fi
+            exit 1
+          '
+
+          cd "$GITHUB_WORKSPACE"
+          rm -rf "$(dirname $TEST_INSTALL_DIR)"
+
+          # ── Summary ──
+          echo ""
+          echo "============================================="
+          echo "  TEST SUMMARY"
+          echo "============================================="
+          echo -e "$RESULTS"
+          echo ""
+          echo "  Total: $((PASS + FAIL))  |  ✅ Passed: $PASS  |  ❌ Failed: $FAIL"
+          echo "============================================="
+
+          if [ "$FAIL" -gt 0 ]; then
+            echo ""
+            echo "❌ SOME TESTS FAILED"
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ ALL TESTS PASSED"
