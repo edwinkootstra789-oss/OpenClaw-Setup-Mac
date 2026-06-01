@@ -26,23 +26,42 @@ jobs:
       - name: Rebuild openclaw-pack for macOS
         run: |
           cd assets
+          echo "=== Listing zip contents (top 20) ==="
+          unzip -l openclaw-pack.zip | head -30
+          echo "=== Extracting ==="
           unzip -o openclaw-pack.zip -d openclaw-pack-temp
+          echo "=== Top-level contents ==="
+          ls -la openclaw-pack-temp/
           cd openclaw-pack-temp
-          WRAPPER_DIR=$(ls -d */ 2>/dev/null | head -1)
-          if [ -n "$WRAPPER_DIR" ]; then
-            cd "$WRAPPER_DIR"
+          TOP_DIR=$(ls -d */ 2>/dev/null | head -1)
+          if [ -n "$TOP_DIR" ]; then
+            echo "Detected wrapper dir: $TOP_DIR"
+            cd "$TOP_DIR"
           fi
+          echo "=== Current dir: $(pwd) ==="
+          ls -la
+          echo "=== Removing old node_modules ==="
           rm -rf node_modules
           if [ -f package.json ]; then
-            npm install --production
+            echo "=== Found package.json, running npm install ==="
+            NODE_OPTIONS="--max-old-space-size=4096" npm install --production || {
+              echo "npm install failed, trying without optional deps"
+              NODE_OPTIONS="--max-old-space-size=4096" npm install --production --ignore-optional || {
+                echo "npm install failed again"
+                exit 1
+              }
+            }
+          else
+            echo "WARNING: No package.json found, skipping npm install"
           fi
+          echo "=== Repackaging ==="
           cd ../..
           rm -f openclaw-pack.zip
           cd openclaw-pack-temp
           zip -r ../openclaw-pack.zip .
           cd ..
           rm -rf openclaw-pack-temp
-          echo "openclaw-pack.zip rebuilt for macOS"
+          echo "=== Done ==="
           ls -lh openclaw-pack.zip
 
       - name: Build macOS DMG
