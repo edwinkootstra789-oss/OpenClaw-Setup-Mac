@@ -37,12 +37,12 @@
         "filter": ["**/*", "!**/node_modules", "!**/__pycache__", "!**/*.pyc", "!**/.venv", "!**/.git", "!**/.github", "!**/.clawhub", "!**/.pytest_cache"]
       },
       {
-        "from": "favicon_io/favicon-256x256.ico",
-        "to": "favicon-256x256.ico"
+        "from": "favicon_io/android-chrome-512x512.png",
+        "to": "favicon-512x512.png"
       }
     ],
     "mac": {
-      "icon": "favicon_io/favicon-256x256.ico",
+      "icon": "favicon_io/android-chrome-512x512.png",
       "category": "public.app-category.developer-tools",
       "target": [
         {
@@ -57,7 +57,7 @@
     },
     "dmg": {
       "title": "OpenClaw 安装向导",
-      "icon": "favicon_io/favicon-256x256.ico",
+      "icon": "favicon_io/android-chrome-512x512.png",
       "contents": [
         { "x": 130, "y": 220 },
         { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
