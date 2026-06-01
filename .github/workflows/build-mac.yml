@@ -83,6 +83,17 @@ jobs:
                 }
               }
             }
+
+            echo ""
+            echo "=== Post-install verification ==="
+            if [ -d "node_modules" ]; then
+              NM_COUNT=$(find node_modules -maxdepth 1 -type d | wc -l | tr -d ' ')
+              echo "  node_modules packages: $NM_COUNT"
+              echo "  node_modules/.bin contents:"
+              ls -la node_modules/.bin/ 2>/dev/null | head -20
+            else
+              echo "  WARNING: node_modules still missing after all attempts!"
+            fi
           else
             echo "WARNING: No package.json found in $WORK_DIR"
             echo "=== Directory listing (max depth 2) ==="
@@ -98,6 +109,9 @@ jobs:
           rm -rf openclaw-pack-temp
           echo "=== New zip size ==="
           ls -lh openclaw-pack.zip
+
+      - name: Fix launcher permissions
+        run: chmod 755 assets/OpenClaw启动.sh
 
       - name: Build macOS DMG
         run: npx electron-builder --mac

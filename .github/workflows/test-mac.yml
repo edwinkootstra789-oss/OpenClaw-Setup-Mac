@@ -65,6 +65,17 @@ jobs:
                 echo ">>> All attempts FAILED, continuing anyway"
               }
             }
+
+            echo ""
+            echo "=== Post-install verification ==="
+            if [ -d "node_modules" ]; then
+              NM_COUNT=$(find node_modules -maxdepth 1 -type d | wc -l | tr -d ' ')
+              echo "  node_modules packages: $NM_COUNT"
+              echo "  node_modules/.bin contents:"
+              ls -la node_modules/.bin/ 2>/dev/null | head -20
+            else
+              echo "  WARNING: node_modules still missing after all attempts!"
+            fi
           else
             echo "WARNING: No package.json found"
             find . -maxdepth 2 -type f | head -30
@@ -79,6 +90,9 @@ jobs:
           rm -rf openclaw-pack-temp
           echo "=== New zip size ==="
           ls -lh openclaw-pack.zip
+
+      - name: Fix launcher permissions
+        run: chmod 755 assets/OpenClaw启动.sh
 
       - name: Build macOS DMG
         run: npx electron-builder --mac
@@ -150,10 +164,32 @@ jobs:
             check "Info.plist exists" '[ -f "$APP_NAME/Contents/Info.plist" ]'
             check "Electron binary exists" '[ -n "$(find "$MACOS_DIR" -type f -perm +111 | head -1)" ]'
 
-            check "main.js in resources" '[ -f "$RESOURCES_DIR/main.js" ]'
-            check "preload.js in resources" '[ -f "$RESOURCES_DIR/preload.js" ]'
-            check "renderer.js in resources" '[ -f "$RESOURCES_DIR/renderer.js" ]'
-            check "index.html in resources" '[ -f "$RESOURCES_DIR/index.html" ]'
+            # electron-builder puts source files in app/ dir or app.asar archive
+            APP_DIR="$RESOURCES_DIR/app"
+            APP_ASAR="$RESOURCES_DIR/app.asar"
+
+            echo "  Checking source file locations..."
+            if [ -d "$APP_DIR" ]; then
+              echo "  Found app/ directory"
+              ls "$APP_DIR/" | head -20
+              SRC_BASE="$APP_DIR"
+            elif [ -f "$APP_ASAR" ]; then
+              echo "  Found app.asar archive (packed)"
+              SRC_BASE=""
+            else
+              echo "  No app/ or app.asar found, listing Resources:"
+              ls "$RESOURCES_DIR/" | head -20
+              SRC_BASE=""
+            fi
+
+            if [ -n "$SRC_BASE" ]; then
+              check "main.js in app" '[ -f "$SRC_BASE/main.js" ]'
+              check "preload.js in app" '[ -f "$SRC_BASE/preload.js" ]'
+              check "renderer.js in app" '[ -f "$SRC_BASE/renderer.js" ]'
+              check "index.html in app" '[ -f "$SRC_BASE/index.html" ]'
+            else
+              check "app.asar exists (source files packed)" '[ -f "$APP_ASAR" ]'
+            fi
 
             # ── Test 5: Assets directory ──
             ASSETS_DIR="$RESOURCES_DIR/assets"
