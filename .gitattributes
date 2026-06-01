@@ -1,0 +1,2 @@
+openclaw-pack.zip
+assets/openclaw-pack.zip filter=lfs diff=lfs merge=lfs -text

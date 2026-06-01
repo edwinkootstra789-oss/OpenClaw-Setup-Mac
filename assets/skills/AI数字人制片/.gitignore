@@ -1,0 +1,44 @@
+# AI Video Producer - Git 忽略文件
+
+# 环境变量文件（包含敏感信息）
+.env
+.env.local
+.env.*.local
+
+# 临时文件目录
+temp/
+tmp/
+*.tmp
+
+# 生成的媒体文件
+*.mp4
+*.mp3
+*.wav
+*.srt
+*.jpg
+*.png
+
+# 日志文件
+*.log
+logs/
+
+# PowerShell 历史记录
+*.ps1.history
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 依赖目录
+node_modules/
+__pycache__/
+*.pyc
+.Python

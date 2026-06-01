@@ -1,0 +1,67 @@
+{
+  "name": "openclaw-setup-wizard",
+  "version": "8.0.1",
+  "description": "OpenClaw Installation Wizard — 6-step desktop setup assistant",
+  "author": "VectorDimension",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/&& set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/&& electron-builder --mac",
+    "build:dir": "set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/&& set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/&& electron-builder --mac --dir"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "fs-extra": "^11.2.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.vectordimension.openclaw-wizard",
+    "productName": "OpenClaw 安装向导",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "renderer.js"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": ["**/*", "!**/node_modules", "!**/__pycache__", "!**/*.pyc", "!**/.venv", "!**/.git", "!**/.github", "!**/.clawhub", "!**/.pytest_cache"]
+      },
+      {
+        "from": "favicon_io/favicon-256x256.ico",
+        "to": "favicon-256x256.ico"
+      }
+    ],
+    "mac": {
+      "icon": "favicon_io/favicon-256x256.ico",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "dmg": {
+      "title": "OpenClaw 安装向导",
+      "icon": "favicon_io/favicon-256x256.ico",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    }
+  }
+}

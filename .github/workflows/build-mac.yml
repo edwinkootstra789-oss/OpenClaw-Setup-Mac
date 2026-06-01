@@ -1,0 +1,63 @@
+name: Build macOS DMG
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install electron-builder dependencies
+        run: npm install
+
+      - name: Rebuild openclaw-pack for macOS
+        run: |
+          cd assets
+          unzip -o openclaw-pack.zip -d openclaw-pack-temp
+          cd openclaw-pack-temp
+          WRAPPER_DIR=$(ls -d */ 2>/dev/null | head -1)
+          if [ -n "$WRAPPER_DIR" ]; then
+            cd "$WRAPPER_DIR"
+          fi
+          rm -rf node_modules
+          if [ -f package.json ]; then
+            npm install --production
+          fi
+          cd ../..
+          rm -f openclaw-pack.zip
+          cd openclaw-pack-temp
+          zip -r ../openclaw-pack.zip .
+          cd ..
+          rm -rf openclaw-pack-temp
+          echo "openclaw-pack.zip rebuilt for macOS"
+          ls -lh openclaw-pack.zip
+
+      - name: Build macOS DMG
+        run: npx electron-builder --mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenClaw-macOS-DMG
+          path: dist/*.dmg
+          retention-days: 30
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenClaw-macOS-ZIP
+          path: dist/*.zip
+          retention-days: 30

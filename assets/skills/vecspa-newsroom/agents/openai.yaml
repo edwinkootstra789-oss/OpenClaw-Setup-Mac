@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vector Space Newsroom"
+  short_description: "向量维度活动新闻稿识别分类与生成"
+  default_prompt: "Use $vector-space-newsroom to classify this activity and draft a Chinese news release in the right tone."
