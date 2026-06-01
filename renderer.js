@@ -501,7 +501,7 @@ $('#btn-inject-skills').addEventListener('click', async () => {
 /* ===== Step 6: Finish ===== */
 async function initFinishPage() {
   const homeDir = await api.getHomeDir()
-  const dataDir = homeDir + '\\.openclaw'
+  const dataDir = homeDir + '/.openclaw'
 
   let desktopStatus = ''
   const launcherResult = await api.copyLauncherToDesktop()
