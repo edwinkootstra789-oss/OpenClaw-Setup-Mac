@@ -23,7 +23,7 @@ jobs:
       - name: Install wizard dependencies
         run: npm install
 
-      - name: Clean openclaw-pack for macOS
+      - name: Rebuild openclaw-pack for macOS
         run: |
           set -x
           ASSETS_DIR="${{ github.workspace }}/assets"
@@ -56,36 +56,67 @@ jobs:
           if [ -f "package.json" ]; then
             echo "=== package.json ==="
             cat package.json
-          fi
-
-          echo ""
-          echo "=== Checking node_modules ==="
-          if [ -d "node_modules" ]; then
-            NM_COUNT=$(find node_modules -maxdepth 1 -type d | wc -l | tr -d ' ')
-            echo "  node_modules already exists with $NM_COUNT top-level directories"
 
             echo ""
-            echo "=== Removing Windows-only files from node_modules ==="
-            find node_modules -name "*.exe" -type f -delete 2>/dev/null
-            find node_modules -name "*.cmd" -type f -delete 2>/dev/null
-            find node_modules -name "*.dll" -type f -delete 2>/dev/null
-            find node_modules -name "*.pdb" -type f -delete 2>/dev/null
-            find node_modules -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-            echo "  Windows binaries removed"
+            echo "=== Removing Windows node_modules and lock file ==="
+            rm -rf node_modules
+            rm -f package-lock.json
+
+            echo "=== Copying tgz to correct location ==="
+            TGZ_NAME="openclaw-2026.5.18.tgz"
+            TGZ_SRC="$ASSETS_DIR/$TGZ_NAME"
+            TGZ_DST="$(dirname "$WORK_DIR")/$TGZ_NAME"
+            if [ -f "$TGZ_SRC" ]; then
+              cp "$TGZ_SRC" "$TGZ_DST"
+              echo "  Copied: $TGZ_SRC -> $TGZ_DST"
+              ls -lh "$TGZ_DST"
+            else
+              echo "  ERROR: $TGZ_SRC not found!"
+              find "$ASSETS_DIR" -name "*.tgz" -type f 2>/dev/null
+              exit 1
+            fi
 
             echo ""
-            echo "=== node_modules/.bin contents ==="
-            ls -la node_modules/.bin/ 2>/dev/null | head -20
+            echo "=== npm install (macOS native) ==="
+            NODE_OPTIONS="--max-old-space-size=8192" npm install --force --omit=dev 2>&1 && {
+              echo ">>> npm install SUCCEEDED"
+            } || {
+              echo ">>> Attempt 1 FAILED"
+              rm -rf node_modules
+              echo "=== Attempt 2: npm install --force --omit=dev --ignore-scripts ==="
+              NODE_OPTIONS="--max-old-space-size=8192" npm install --force --omit=dev --ignore-scripts 2>&1 && {
+                echo ">>> Attempt 2 SUCCEEDED"
+              } || {
+                echo ">>> Attempt 2 FAILED"
+                rm -rf node_modules
+                echo "=== Attempt 3: npm install --force --legacy-peer-deps --ignore-scripts ==="
+                NODE_OPTIONS="--max-old-space-size=8192" npm install --force --legacy-peer-deps --ignore-scripts 2>&1 && {
+                  echo ">>> Attempt 3 SUCCEEDED"
+                } || {
+                  echo ">>> All npm install attempts FAILED"
+                  exit 1
+                }
+              }
+            }
 
-            NM_COUNT_AFTER=$(find node_modules -maxdepth 1 -type d | wc -l | tr -d ' ')
-            echo "  After cleanup: $NM_COUNT_AFTER top-level directories"
+            echo ""
+            echo "=== Verification ==="
+            if [ -d "node_modules" ]; then
+              NM_COUNT=$(find node_modules -maxdepth 1 -type d | wc -l | tr -d ' ')
+              echo "  node_modules packages: $NM_COUNT"
+              echo "  node_modules/.bin contents:"
+              ls -la node_modules/.bin/ 2>/dev/null | head -20
+            else
+              echo "  ERROR: node_modules missing after install!"
+              exit 1
+            fi
           else
-            echo "  WARNING: node_modules not found in zip!"
-            echo "  Directory listing:"
+            echo "ERROR: No package.json found in $WORK_DIR"
             find . -maxdepth 2 -type f | head -30
+            exit 1
           fi
 
-          rm -f package-lock.json
+          rm -f "$TGZ_DST"
 
           echo ""
           echo "=== Repackaging ==="
